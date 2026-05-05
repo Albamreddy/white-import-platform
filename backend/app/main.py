@@ -43,7 +43,7 @@ from .auth import (
     get_current_user,
 )
 from .database import get_db, init_db, async_session
-from .models import Course, Enrollment, Lesson, Review, TwoFactorCode, User, Webinar
+from .models import Course, EmailSubscriber, Enrollment, Lesson, News, Review, TwoFactorCode, User, Webinar
 from .schemas import (
     AdminEnrollmentOut,
     AdminStatsOut,
@@ -61,16 +61,23 @@ from .schemas import (
     LessonOut,
     LessonUpdate,
     MessageOut,
+    NewsCreate,
+    NewsletterSend,
+    NewsOut,
+    NewsUpdate,
     ProgressUpdate,
     ReviewCreate,
     ReviewOut,
     ReviewUpdate,
+    SubscribeRequest,
+    SubscriberOut,
     Token,
     TwoFactorRequest,
     TwoFactorVerify,
     UserCreate,
     UserLogin,
     UserOut,
+    UserProfileUpdate,
     WebinarCreate,
     WebinarOut,
     WebinarUpdate,
@@ -346,6 +353,26 @@ async def upload_image(
         raise HTTPException(400, f"Формат {ext} не поддерживается")
 
     filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    return {"url": f"/uploads/{filename}", "filename": filename}
+
+
+@app.post("/api/upload/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    user: User = Depends(require_user),
+):
+    allowed = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed:
+        raise HTTPException(400, f"Формат {ext} не поддерживается")
+    if file.size and file.size > 5 * 1024 * 1024:
+        raise HTTPException(400, "Файл слишком большой. Максимум 5 МБ")
+
+    filename = f"avatar_{user.id}_{uuid.uuid4().hex[:8]}{ext}"
     filepath = UPLOAD_DIR / filename
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
@@ -974,3 +1001,195 @@ async def api_docs_info():
         "auth_info": "Используйте JWT Bearer token в заголовке Authorization. Получите токен через POST /api/auth/login",
         "rate_limit": "120 запросов в минуту на IP",
     }
+
+
+# ── Profile Update ───────────────────────────────────────────────
+
+@app.patch("/api/auth/profile", response_model=UserOut)
+async def update_profile(
+    data: UserProfileUpdate,
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    update = data.model_dump(exclude_unset=True)
+    for key, value in update.items():
+        setattr(user, key, value)
+    await db.commit()
+    await db.refresh(user)
+    return UserOut.model_validate(user)
+
+
+# ── News ─────────────────────────────────────────────────────────
+
+@app.get("/api/news", response_model=list[NewsOut])
+async def list_news(
+    category: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(News).where(News.is_published == True)
+    if category:
+        query = query.where(News.category == category)
+    query = query.order_by(News.created_at.desc())
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@app.get("/api/news/{news_id}", response_model=NewsOut)
+async def get_news_item(news_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(News).where(News.id == news_id, News.is_published == True))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Новость не найдена")
+    return item
+
+
+@app.get("/api/admin/news", response_model=list[NewsOut])
+async def admin_list_news(
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(News).order_by(News.created_at.desc()))
+    return result.scalars().all()
+
+
+@app.post("/api/admin/news", response_model=NewsOut)
+async def admin_create_news(
+    data: NewsCreate,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    item = News(**data.model_dump())
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@app.patch("/api/admin/news/{news_id}", response_model=MessageOut)
+async def admin_update_news(
+    news_id: int,
+    data: NewsUpdate,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(News).where(News.id == news_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Новость не найдена")
+    update = data.model_dump(exclude_unset=True)
+    for key, value in update.items():
+        setattr(item, key, value)
+    await db.commit()
+    return MessageOut(message="Новость обновлена")
+
+
+@app.delete("/api/admin/news/{news_id}", response_model=MessageOut)
+async def admin_delete_news(
+    news_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(News).where(News.id == news_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Новость не найдена")
+    await db.delete(item)
+    await db.commit()
+    return MessageOut(message="Новость удалена")
+
+
+# ── Subscribers ──────────────────────────────────────────────────
+
+@app.post("/api/subscribe", response_model=MessageOut)
+async def subscribe(data: SubscribeRequest, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(
+        select(EmailSubscriber).where(EmailSubscriber.email == data.email)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Этот email уже подписан")
+    sub = EmailSubscriber(email=data.email, name=data.name)
+    db.add(sub)
+    await db.commit()
+    return MessageOut(message="Вы успешно подписались на рассылку")
+
+
+@app.get("/api/admin/subscribers", response_model=list[SubscriberOut])
+async def admin_list_subscribers(
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(EmailSubscriber).order_by(EmailSubscriber.subscribed_at.desc())
+    )
+    return result.scalars().all()
+
+
+@app.delete("/api/admin/subscribers/{sub_id}", response_model=MessageOut)
+async def admin_delete_subscriber(
+    sub_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(EmailSubscriber).where(EmailSubscriber.id == sub_id))
+    sub = result.scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404, "Подписчик не найден")
+    await db.delete(sub)
+    await db.commit()
+    return MessageOut(message="Подписчик удалён")
+
+
+# ── Newsletter ───────────────────────────────────────────────────
+
+import smtplib
+import asyncio
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
+
+
+def _send_emails_sync(subject: str, body: str, recipients: list[str]) -> int:
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+        return 0
+    sent = 0
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        for email in recipients:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = SMTP_FROM
+            msg["To"] = email
+            msg.attach(MIMEText(body, "html", "utf-8"))
+            server.sendmail(SMTP_FROM, email, msg.as_string())
+            sent += 1
+    return sent
+
+
+@app.post("/api/admin/newsletter/send", response_model=MessageOut)
+async def send_newsletter(
+    data: NewsletterSend,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(EmailSubscriber).where(EmailSubscriber.is_active == True)
+    )
+    subscribers = result.scalars().all()
+    if not subscribers:
+        raise HTTPException(400, "Нет активных подписчиков")
+
+    recipients = [s.email for s in subscribers]
+
+    if not SMTP_HOST:
+        return MessageOut(
+            message=f"SMTP не настроен. Рассылка не отправлена. Подписчиков: {len(recipients)}"
+        )
+
+    sent = await asyncio.to_thread(_send_emails_sync, data.subject, data.body, recipients)
+    return MessageOut(message=f"Рассылка отправлена {sent} из {len(recipients)} подписчиков")

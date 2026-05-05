@@ -1259,6 +1259,7 @@ input, textarea, select { font-family: inherit; }
 .badge-red { background: rgba(239,68,68,0.12); color: #f87171; }
 .badge-blue { background: rgba(99,102,241,0.12); color: #818cf8; }
 .badge-yellow { background: rgba(245,158,11,0.12); color: #fbbf24; }
+.badge-purple { background: rgba(168,85,247,0.12); color: #c084fc; }
 
 /* Admin courses grid */
 .courses-admin-grid {

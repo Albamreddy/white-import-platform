@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     is_admin: bool
     created_at: datetime
     avatar_url: str | None
+    background_url: str | None = None
 
     class Config:
         from_attributes = True
@@ -286,3 +287,65 @@ class TwoFactorRequest(BaseModel):
 class TwoFactorVerify(BaseModel):
     email: str
     code: str
+
+
+# ── Profile ───────────────────────────────────────────────────────
+
+class UserProfileUpdate(BaseModel):
+    full_name: str | None = None
+    avatar_url: str | None = None
+    background_url: str | None = None
+
+
+# ── News ──────────────────────────────────────────────────────────
+
+class NewsCreate(BaseModel):
+    title: str
+    content: str
+    category: str = "news"
+    image_url: str | None = None
+    is_published: bool = True
+
+
+class NewsUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    category: str | None = None
+    image_url: str | None = None
+    is_published: bool | None = None
+
+
+class NewsOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    category: str
+    image_url: str | None
+    is_published: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Newsletter / Subscribers ──────────────────────────────────────
+
+class SubscribeRequest(BaseModel):
+    email: str
+    name: str | None = None
+
+
+class SubscriberOut(BaseModel):
+    id: int
+    email: str
+    name: str | None
+    is_active: bool
+    subscribed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NewsletterSend(BaseModel):
+    subject: str
+    body: str

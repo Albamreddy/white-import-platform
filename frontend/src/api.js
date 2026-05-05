@@ -75,6 +75,10 @@ export const api = {
   uploadVideo: (file) => uploadFile('/api/upload/video', file),
   uploadVideoWithProgress: (file, onProgress) => uploadFileWithProgress('/api/upload/video', file, onProgress),
   uploadImage: (file) => uploadFile('/api/upload/image', file),
+  uploadAvatar: (file) => uploadFile('/api/upload/avatar', file),
+
+  // Profile
+  updateProfile: (data) => request('/api/auth/profile', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Admin
   getStats: () => request('/api/admin/stats'),
@@ -115,4 +119,18 @@ export const api = {
   // Calculator
   getCalcCategories: () => request('/api/calculator/categories'),
   calculate: (data) => request('/api/calculator', { method: 'POST', body: JSON.stringify(data) }),
+
+  // News
+  getNews: (category) => request(`/api/news${category ? '?category=' + category : ''}`),
+  getNewsItem: (id) => request(`/api/news/${id}`),
+  getAdminNews: () => request('/api/admin/news'),
+  createNews: (data) => request('/api/admin/news', { method: 'POST', body: JSON.stringify(data) }),
+  updateNews: (id, data) => request(`/api/admin/news/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteNews: (id) => request(`/api/admin/news/${id}`, { method: 'DELETE' }),
+
+  // Subscribers & Newsletter
+  subscribe: (email, name) => request('/api/subscribe', { method: 'POST', body: JSON.stringify({ email, name }) }),
+  getSubscribers: () => request('/api/admin/subscribers'),
+  deleteSubscriber: (id) => request(`/api/admin/subscribers/${id}`, { method: 'DELETE' }),
+  sendNewsletter: (subject, body) => request('/api/admin/newsletter/send', { method: 'POST', body: JSON.stringify({ subject, body }) }),
 };

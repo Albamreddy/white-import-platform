@@ -3,12 +3,22 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import CourseCard from '../components/CourseCard';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const AUTHOR_IMAGE = 'https://app.devin.ai/attachments/e68d0e19-8d65-4598-b2d7-128503793dce/author.jpg';
+
+const NEWS_CATEGORIES = [
+  { key: 'all', label: 'Все' },
+  { key: 'news', label: 'Новости' },
+  { key: 'announcement', label: 'Анонсы' },
+  { key: 'hscode', label: 'ТН ВЭД' },
+];
 
 export default function Home() {
   const [courses, setCourses] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [webinars, setWebinars] = useState([]);
+  const [news, setNews] = useState([]);
+  const [newsTab, setNewsTab] = useState('all');
   const [loading, setLoading] = useState(true);
   const [reviewForm, setReviewForm] = useState({ text: '', rating: 5 });
   const [reviewMsg, setReviewMsg] = useState('');
@@ -19,6 +29,7 @@ export default function Home() {
       api.getCourses('featured=true').then(setCourses).catch(console.error),
       api.getReviews().then(setReviews).catch(() => {}),
       api.getWebinars().then(setWebinars).catch(() => {}),
+      api.getNews().then(setNews).catch(() => {}),
     ]).finally(() => setLoading(false));
   }, []);
 
@@ -154,23 +165,32 @@ export default function Home() {
           <div className="webinar-cards">
             {upcoming.map(w => (
               <div key={w.id} className="webinar-card interactive-card">
-                <div className="webinar-card-date">
-                  <span className="webinar-day">{new Date(w.date).getDate()}</span>
-                  <span className="webinar-month">{new Date(w.date).toLocaleString('ru-RU', { month: 'short' })}</span>
-                </div>
-                <div className="webinar-card-info">
-                  <h4>{w.title}</h4>
-                  <p>{w.description}</p>
-                  <div className="webinar-meta">
-                    <span className="badge badge-blue">{w.platform === 'telegram' ? 'Telegram' : 'ВКонтакте'}</span>
-                    <span>{new Date(w.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} МСК</span>
-                  </div>
-                </div>
-                {w.link && (
-                  <a href={w.link} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm">
-                    Участвовать →
-                  </a>
+                {w.image_url && (
+                  <img
+                    src={w.image_url.startsWith('http') ? w.image_url : `${API_URL}${w.image_url}`}
+                    alt={w.title}
+                    style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '12px 12px 0 0', display: 'block' }}
+                  />
                 )}
+                <div style={{ padding: '16px' }}>
+                  <div className="webinar-card-date">
+                    <span className="webinar-day">{new Date(w.date).getDate()}</span>
+                    <span className="webinar-month">{new Date(w.date).toLocaleString('ru-RU', { month: 'short' })}</span>
+                  </div>
+                  <div className="webinar-card-info">
+                    <h4>{w.title}</h4>
+                    <p>{w.description}</p>
+                    <div className="webinar-meta">
+                      <span className="badge badge-blue">{w.platform === 'telegram' ? 'Telegram' : 'ВКонтакте'}</span>
+                      <span>{new Date(w.date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} МСК</span>
+                    </div>
+                  </div>
+                  {w.link && (
+                    <a href={w.link} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ marginTop: '12px' }}>
+                      Участвовать →
+                    </a>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -267,6 +287,58 @@ export default function Home() {
           </form>
         </div>
       </section>
+
+      {/* News & Announcements */}
+      {news.length > 0 && (
+        <section className="section">
+          <h2 className="section-title">Новости и анонсы</h2>
+          <p className="section-subtitle">Актуальные обновления по таможне, ТН ВЭД и импорту</p>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            {NEWS_CATEGORIES.map(cat => (
+              <button
+                key={cat.key}
+                className={`btn btn-sm ${newsTab === cat.key ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setNewsTab(cat.key)}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+            {news
+              .filter(n => newsTab === 'all' || n.category === newsTab)
+              .slice(0, 6)
+              .map(item => (
+                <div key={item.id} className="interactive-card" style={{
+                  background: 'var(--card-bg)', borderRadius: '12px', overflow: 'hidden',
+                  border: '1px solid var(--border)',
+                }}>
+                  {item.image_url && (
+                    <img
+                      src={item.image_url.startsWith('http') ? item.image_url : `${API_URL}${item.image_url}`}
+                      alt={item.title}
+                      style={{ width: '100%', height: '140px', objectFit: 'cover' }}
+                    />
+                  )}
+                  <div style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                      <span className={`badge ${item.category === 'announcement' ? 'badge-blue' : item.category === 'hscode' ? 'badge-purple' : 'badge-green'}`}>
+                        {item.category === 'announcement' ? 'Анонс' : item.category === 'hscode' ? 'ТН ВЭД' : 'Новость'}
+                      </span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {new Date(item.created_at).toLocaleDateString('ru-RU')}
+                      </span>
+                    </div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: '15px', fontWeight: 600 }}>{item.title}</h4>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {item.content}
+                    </p>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
 
       <section className="cta-section">
         <div className="cta-inner">

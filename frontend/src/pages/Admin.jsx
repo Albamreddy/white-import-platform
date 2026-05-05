@@ -755,7 +755,9 @@ function WebinarsTab() {
   const [webinars, setWebinars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', date: '', platform: 'telegram', link: '', is_active: true });
+  const [form, setForm] = useState({ title: '', description: '', date: '', platform: 'telegram', link: '', image_url: '', is_active: true });
+  const [imgUploading, setImgUploading] = useState(false);
+  const imgRef = useRef(null);
 
   const load = () => {
     setLoading(true);
@@ -763,9 +765,20 @@ function WebinarsTab() {
   };
   useEffect(load, []);
 
+  const handleImgUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImgUploading(true);
+    try {
+      const { url } = await api.uploadImage(file);
+      setForm(f => ({ ...f, image_url: `${API_URL}${url}` }));
+    } catch (err) { alert(err.message); }
+    setImgUploading(false);
+  };
+
   const create = async () => {
     await api.createWebinar({ ...form, date: new Date(form.date).toISOString() });
-    setForm({ title: '', description: '', date: '', platform: 'telegram', link: '', is_active: true });
+    setForm({ title: '', description: '', date: '', platform: 'telegram', link: '', image_url: '', is_active: true });
     setShowForm(false);
     load();
   };
@@ -819,6 +832,19 @@ function WebinarsTab() {
             <label>Ссылка</label>
             <input value={form.link} onChange={e => setForm({...form, link: e.target.value})} placeholder="https://t.me/..." />
           </div>
+          <div className="form-group">
+            <label>Превью изображение</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input value={form.image_url} onChange={e => setForm({...form, image_url: e.target.value})} placeholder="URL или загрузите файл" style={{ flex: 1 }} />
+              <label className="btn btn-xs btn-secondary" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {imgUploading ? '⏳' : '📷 Загрузить'}
+                <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImgUpload} />
+              </label>
+            </div>
+            {form.image_url && (
+              <img src={form.image_url} alt="preview" style={{ marginTop: '8px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} />
+            )}
+          </div>
           <button className="btn btn-primary" onClick={create} disabled={!form.title || !form.date}>
             Создать вебинар
           </button>
@@ -828,13 +854,17 @@ function WebinarsTab() {
       <table className="admin-table">
         <thead>
           <tr>
-            <th>ID</th><th>Название</th><th>Дата</th><th>Платформа</th><th>Статус</th><th>Действия</th>
+            <th>Превью</th><th>Название</th><th>Дата</th><th>Платформа</th><th>Статус</th><th>Действия</th>
           </tr>
         </thead>
         <tbody>
           {webinars.map(w => (
             <tr key={w.id}>
-              <td>{w.id}</td>
+              <td>
+                {w.image_url
+                  ? <img src={w.image_url.startsWith('http') ? w.image_url : `${API_URL}${w.image_url}`} alt="" style={{ width: '60px', height: '40px', objectFit: 'cover', borderRadius: '4px' }} />
+                  : <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>нет</span>}
+              </td>
               <td>{w.title}</td>
               <td>{new Date(w.date).toLocaleString('ru-RU')}</td>
               <td>{w.platform === 'telegram' ? 'Telegram' : 'ВКонтакте'}</td>
@@ -853,6 +883,253 @@ function WebinarsTab() {
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+function NewsTab() {
+  const [newsList, setNewsList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm] = useState({ title: '', content: '', category: 'news', image_url: '', is_published: true });
+  const [imgUploading, setImgUploading] = useState(false);
+  const imgRef = useRef(null);
+
+  const load = () => {
+    setLoading(true);
+    api.getAdminNews().then(setNewsList).catch(console.error).finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const handleImgUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImgUploading(true);
+    try {
+      const { url } = await api.uploadImage(file);
+      setForm(f => ({ ...f, image_url: `${API_URL}${url}` }));
+    } catch (err) { alert(err.message); }
+    setImgUploading(false);
+  };
+
+  const openCreate = () => {
+    setEditItem(null);
+    setForm({ title: '', content: '', category: 'news', image_url: '', is_published: true });
+    setShowForm(true);
+  };
+
+  const openEdit = (item) => {
+    setEditItem(item);
+    setForm({ title: item.title, content: item.content, category: item.category, image_url: item.image_url || '', is_published: item.is_published });
+    setShowForm(true);
+  };
+
+  const save = async () => {
+    if (editItem) {
+      await api.updateNews(editItem.id, form);
+    } else {
+      await api.createNews(form);
+    }
+    setShowForm(false);
+    setEditItem(null);
+    load();
+  };
+
+  const remove = async (id) => {
+    if (!confirm('Удалить новость?')) return;
+    await api.deleteNews(id);
+    load();
+  };
+
+  const togglePublish = async (item) => {
+    await api.updateNews(item.id, { is_published: !item.is_published });
+    load();
+  };
+
+  if (loading) return <div className="loading"><div className="spinner" /></div>;
+
+  return (
+    <>
+      <div className="admin-header">
+        <h1>Новости и анонсы ({newsList.length})</h1>
+        <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Добавить</button>
+      </div>
+
+      {showForm && (
+        <div className="admin-form-card" style={{ marginBottom: '24px' }}>
+          <h3 style={{ marginBottom: '16px' }}>{editItem ? 'Редактировать' : 'Новая запись'}</h3>
+          <div className="form-group">
+            <label>Заголовок</label>
+            <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="Заголовок новости" />
+          </div>
+          <div className="form-group">
+            <label>Категория</label>
+            <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ width: '100%', padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--bg-secondary)', color: 'var(--text)' }}>
+              <option value="news">Новость</option>
+              <option value="announcement">Анонс</option>
+              <option value="hscode">ТН ВЭД</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Содержимое</label>
+            <textarea value={form.content} onChange={e => setForm({...form, content: e.target.value})} rows={5} placeholder="Текст новости..." style={{ resize: 'vertical' }} />
+          </div>
+          <div className="form-group">
+            <label>Изображение</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input value={form.image_url} onChange={e => setForm({...form, image_url: e.target.value})} placeholder="URL или загрузите файл" style={{ flex: 1 }} />
+              <label className="btn btn-xs btn-secondary" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {imgUploading ? '⏳' : '📷 Загрузить'}
+                <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImgUpload} />
+              </label>
+            </div>
+            {form.image_url && (
+              <img src={form.image_url} alt="preview" style={{ marginTop: '8px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} />
+            )}
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '16px' }}>
+            <input type="checkbox" checked={form.is_published} onChange={e => setForm({...form, is_published: e.target.checked})} />
+            Опубликовать
+          </label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-primary" onClick={save} disabled={!form.title || !form.content}>Сохранить</button>
+            <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditItem(null); }}>Отмена</button>
+          </div>
+        </div>
+      )}
+
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Заголовок</th><th>Категория</th><th>Статус</th><th>Дата</th><th>Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          {newsList.map(item => (
+            <tr key={item.id}>
+              <td>{item.id}</td>
+              <td style={{ maxWidth: '300px' }}>{item.title}</td>
+              <td>
+                <span className={`badge ${item.category === 'announcement' ? 'badge-blue' : item.category === 'hscode' ? 'badge-purple' : 'badge-green'}`}>
+                  {item.category === 'announcement' ? 'Анонс' : item.category === 'hscode' ? 'ТН ВЭД' : 'Новость'}
+                </span>
+              </td>
+              <td>
+                {item.is_published
+                  ? <span className="badge badge-green">Опубликовано</span>
+                  : <span className="badge badge-yellow">Скрыто</span>}
+              </td>
+              <td>{new Date(item.created_at).toLocaleDateString('ru-RU')}</td>
+              <td style={{ display: 'flex', gap: '4px' }}>
+                <button className="btn btn-xs btn-secondary" onClick={() => openEdit(item)}>Ред.</button>
+                <button className="btn btn-xs btn-secondary" onClick={() => togglePublish(item)}>
+                  {item.is_published ? 'Скрыть' : 'Опубл.'}
+                </button>
+                <button className="btn btn-xs btn-danger" onClick={() => remove(item.id)}>Удалить</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function NewsletterTab() {
+  const [subscribers, setSubscribers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState('');
+
+  const load = () => {
+    setLoading(true);
+    api.getSubscribers().then(setSubscribers).catch(console.error).finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const removeSub = async (id) => {
+    if (!confirm('Удалить подписчика?')) return;
+    await api.deleteSubscriber(id);
+    load();
+  };
+
+  const sendNewsletter = async () => {
+    if (!subject || !body) return;
+    setSending(true);
+    setSendMsg('');
+    try {
+      const result = await api.sendNewsletter(subject, body);
+      setSendMsg(result.message);
+      setSubject('');
+      setBody('');
+    } catch (err) {
+      setSendMsg('Ошибка: ' + err.message);
+    }
+    setSending(false);
+  };
+
+  if (loading) return <div className="loading"><div className="spinner" /></div>;
+
+  return (
+    <>
+      <div className="admin-header">
+        <h1>Рассылка</h1>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
+        <div className="admin-form-card">
+          <h3 style={{ marginBottom: '16px' }}>Отправить рассылку</h3>
+          <div className="stat-card" style={{ marginBottom: '16px', padding: '16px' }}>
+            <div className="stat-card-icon">📧</div>
+            <div className="stat-card-value">{subscribers.filter(s => s.is_active).length}</div>
+            <div className="stat-card-label">Активных подписчиков</div>
+          </div>
+          {sendMsg && (
+            <div className="alert alert-success" style={{ marginBottom: '12px' }}>{sendMsg}</div>
+          )}
+          <div className="form-group">
+            <label>Тема письма</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Тема рассылки" />
+          </div>
+          <div className="form-group">
+            <label>Текст (HTML поддерживается)</label>
+            <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} placeholder="<h2>Заголовок</h2><p>Текст письма...</p>" style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '13px' }} />
+          </div>
+          <button className="btn btn-primary" onClick={sendNewsletter} disabled={sending || !subject || !body}>
+            {sending ? 'Отправляем...' : `Отправить ${subscribers.filter(s => s.is_active).length} подписчикам`}
+          </button>
+        </div>
+
+        <div>
+          <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: 700 }}>
+            Подписчики ({subscribers.length})
+          </h3>
+          <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+            {subscribers.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                <div className="recent-avatar" style={{ flexShrink: 0 }}>{s.email[0].toUpperCase()}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.email}</div>
+                  {s.name && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{s.name}</div>}
+                  <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>{new Date(s.subscribed_at).toLocaleDateString('ru-RU')}</div>
+                </div>
+                <span className={`badge ${s.is_active ? 'badge-green' : 'badge-red'}`} style={{ flexShrink: 0 }}>
+                  {s.is_active ? 'Активный' : 'Отписан'}
+                </span>
+                <button className="btn btn-xs btn-danger" style={{ flexShrink: 0 }} onClick={() => removeSub(s.id)}>✕</button>
+              </div>
+            ))}
+            {subscribers.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px 0' }}>
+                Нет подписчиков
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </>
   );
 }
@@ -890,6 +1167,12 @@ export default function Admin() {
         <button className={`admin-nav-item ${tab === 'webinars' ? 'active' : ''}`} onClick={() => setTab('webinars')}>
           <span className="nav-icon">📡</span> Вебинары
         </button>
+        <button className={`admin-nav-item ${tab === 'news' ? 'active' : ''}`} onClick={() => setTab('news')}>
+          <span className="nav-icon">📰</span> Новости
+        </button>
+        <button className={`admin-nav-item ${tab === 'newsletter' ? 'active' : ''}`} onClick={() => setTab('newsletter')}>
+          <span className="nav-icon">📧</span> Рассылка
+        </button>
       </aside>
       <div className="admin-content">
         {tab === 'dashboard' && <Dashboard />}
@@ -898,6 +1181,8 @@ export default function Admin() {
         {tab === 'enrollments' && <EnrollmentsTab />}
         {tab === 'reviews' && <ReviewsTab />}
         {tab === 'webinars' && <WebinarsTab />}
+        {tab === 'news' && <NewsTab />}
+        {tab === 'newsletter' && <NewsletterTab />}
       </div>
     </div>
   );

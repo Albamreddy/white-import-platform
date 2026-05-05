@@ -28,6 +28,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     avatar_url = Column(String(500), nullable=True)
+    background_url = Column(String(500), nullable=True)
 
     enrollments = relationship("Enrollment", back_populates="user")
 
@@ -114,3 +115,23 @@ class Webinar(Base):
     image_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class News(Base):
+    __tablename__ = "news"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(100), default="news")  # news | announcement | hscode
+    image_url = Column(String(500), nullable=True)
+    is_published = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class EmailSubscriber(Base):
+    __tablename__ = "email_subscribers"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    name = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    subscribed_at = Column(DateTime, default=datetime.datetime.utcnow)
