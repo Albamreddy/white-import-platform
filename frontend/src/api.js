@@ -133,4 +133,5 @@ export const api = {
   getSubscribers: () => request('/api/admin/subscribers'),
   deleteSubscriber: (id) => request(`/api/admin/subscribers/${id}`, { method: 'DELETE' }),
   sendNewsletter: (subject, body) => request('/api/admin/newsletter/send', { method: 'POST', body: JSON.stringify({ subject, body }) }),
+  sendNewsletterTest: (subject, body, email) => request('/api/admin/newsletter/test', { method: 'POST', body: JSON.stringify({ subject, body, email }) }),
 };

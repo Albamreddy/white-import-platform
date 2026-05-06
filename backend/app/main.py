@@ -63,6 +63,7 @@ from .schemas import (
     MessageOut,
     NewsCreate,
     NewsletterSend,
+    NewsletterTest,
     NewsOut,
     NewsUpdate,
     ProgressUpdate,
@@ -1239,3 +1240,26 @@ async def send_newsletter(
 
     sent = await asyncio.to_thread(_send_emails_sync, data.subject, data.body, recipients)
     return MessageOut(message=f"SMTP: отправлено {sent} из {len(recipients)} подписчиков")
+
+
+@app.post("/api/admin/newsletter/test", response_model=MessageOut)
+async def send_newsletter_test(
+    data: NewsletterTest,
+    user: User = Depends(require_admin),
+):
+    recipients = [data.email]
+    if UNISENDER_API_KEY and UNISENDER_LIST_ID and UNISENDER_SENDER_EMAIL:
+        sent, errors = await _send_via_unisender(data.subject, data.body, recipients)
+        if sent == 1:
+            return MessageOut(message=f"Тест отправлен на {data.email} через Unisender")
+        return MessageOut(message=f"Unisender не отправил. {'; '.join(errors) or 'неизвестная ошибка'}")
+
+    if not SMTP_HOST:
+        return MessageOut(
+            message="Email-сервис не настроен. Задайте UNISENDER_* или SMTP_* в переменных окружения."
+        )
+
+    sent = await asyncio.to_thread(_send_emails_sync, data.subject, data.body, recipients)
+    if sent == 1:
+        return MessageOut(message=f"Тест отправлен на {data.email} через SMTP")
+    return MessageOut(message="SMTP не отправил тестовое письмо")

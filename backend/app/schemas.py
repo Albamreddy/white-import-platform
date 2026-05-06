@@ -349,3 +349,9 @@ class SubscriberOut(BaseModel):
 class NewsletterSend(BaseModel):
     subject: str
     body: str
+
+
+class NewsletterTest(BaseModel):
+    subject: str
+    body: str
+    email: EmailStr

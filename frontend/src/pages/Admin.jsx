@@ -1043,6 +1043,8 @@ function NewsletterTab() {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState('');
+  const [testEmail, setTestEmail] = useState('');
+  const [testing, setTesting] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -1058,6 +1060,7 @@ function NewsletterTab() {
 
   const sendNewsletter = async () => {
     if (!subject || !body) return;
+    if (!confirm(`Отправить рассылку ${subscribers.filter(s => s.is_active).length} подписчикам?`)) return;
     setSending(true);
     setSendMsg('');
     try {
@@ -1069,6 +1072,19 @@ function NewsletterTab() {
       setSendMsg('Ошибка: ' + err.message);
     }
     setSending(false);
+  };
+
+  const sendTest = async () => {
+    if (!subject || !body || !testEmail) return;
+    setTesting(true);
+    setSendMsg('');
+    try {
+      const result = await api.sendNewsletterTest(subject, body, testEmail);
+      setSendMsg(result.message);
+    } catch (err) {
+      setSendMsg('Ошибка: ' + err.message);
+    }
+    setTesting(false);
   };
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
@@ -1097,6 +1113,28 @@ function NewsletterTab() {
           <div className="form-group">
             <label>Текст (HTML поддерживается)</label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} placeholder="<h2>Заголовок</h2><p>Текст письма...</p>" style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '13px' }} />
+          </div>
+          <div className="form-group">
+            <label>Тестовый email</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="email"
+                value={testEmail}
+                onChange={e => setTestEmail(e.target.value)}
+                placeholder="test@example.com"
+                style={{ flex: 1 }}
+              />
+              <button
+                className="btn btn-secondary"
+                onClick={sendTest}
+                disabled={testing || !subject || !body || !testEmail}
+              >
+                {testing ? '...' : 'Тест'}
+              </button>
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+              Отправит письмо только на этот адрес — для проверки настройки
+            </div>
           </div>
           <button className="btn btn-primary" onClick={sendNewsletter} disabled={sending || !subject || !body}>
             {sending ? 'Отправляем...' : `Отправить ${subscribers.filter(s => s.is_active).length} подписчикам`}
