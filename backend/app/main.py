@@ -1152,6 +1152,11 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
 
+UNISENDER_API_KEY = os.getenv("UNISENDER_API_KEY", "")
+UNISENDER_LIST_ID = os.getenv("UNISENDER_LIST_ID", "")
+UNISENDER_SENDER_EMAIL = os.getenv("UNISENDER_SENDER_EMAIL", SMTP_FROM)
+UNISENDER_SENDER_NAME = os.getenv("UNISENDER_SENDER_NAME", "Белый ввоз")
+
 
 def _send_emails_sync(subject: str, body: str, recipients: list[str]) -> int:
     if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
@@ -1171,6 +1176,37 @@ def _send_emails_sync(subject: str, body: str, recipients: list[str]) -> int:
     return sent
 
 
+async def _send_via_unisender(subject: str, body: str, recipients: list[str]) -> tuple[int, list[str]]:
+    """Send each recipient one transactional email via Unisender sendEmail API.
+    Returns (sent_count, list_of_errors)."""
+    sent = 0
+    errors: list[str] = []
+    url = "https://api.unisender.com/ru/api/sendEmail"
+    async with httpx.AsyncClient(timeout=30) as client:
+        for email in recipients:
+            params = {
+                "format": "json",
+                "api_key": UNISENDER_API_KEY,
+                "email": email,
+                "sender_name": UNISENDER_SENDER_NAME,
+                "sender_email": UNISENDER_SENDER_EMAIL,
+                "subject": subject,
+                "body": body,
+                "list_id": UNISENDER_LIST_ID,
+                "lang": "ru",
+            }
+            try:
+                resp = await client.post(url, data=params)
+                payload = resp.json()
+                if "error" in payload:
+                    errors.append(f"{email}: {payload['error']}")
+                else:
+                    sent += 1
+            except Exception as e:
+                errors.append(f"{email}: {e}")
+    return sent, errors
+
+
 @app.post("/api/admin/newsletter/send", response_model=MessageOut)
 async def send_newsletter(
     data: NewsletterSend,
@@ -1186,10 +1222,20 @@ async def send_newsletter(
 
     recipients = [s.email for s in subscribers]
 
+    if UNISENDER_API_KEY and UNISENDER_LIST_ID and UNISENDER_SENDER_EMAIL:
+        sent, errors = await _send_via_unisender(data.subject, data.body, recipients)
+        msg = f"Unisender: отправлено {sent} из {len(recipients)}"
+        if errors:
+            msg += f". Ошибки: {'; '.join(errors[:3])}"
+            if len(errors) > 3:
+                msg += f" (и ещё {len(errors) - 3})"
+        return MessageOut(message=msg)
+
     if not SMTP_HOST:
         return MessageOut(
-            message=f"SMTP не настроен. Рассылка не отправлена. Подписчиков: {len(recipients)}"
+            message=f"Email-сервис не настроен. Подписчиков: {len(recipients)}. "
+                    f"Задайте UNISENDER_API_KEY+UNISENDER_LIST_ID+UNISENDER_SENDER_EMAIL или SMTP_*."
         )
 
     sent = await asyncio.to_thread(_send_emails_sync, data.subject, data.body, recipients)
-    return MessageOut(message=f"Рассылка отправлена {sent} из {len(recipients)} подписчиков")
+    return MessageOut(message=f"SMTP: отправлено {sent} из {len(recipients)} подписчиков")
