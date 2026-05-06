@@ -136,8 +136,17 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
         hashed_password=get_password_hash(data.password),
     )
     db.add(user)
+
+    existing_sub = await db.execute(
+        select(EmailSubscriber).where(EmailSubscriber.email == data.email)
+    )
+    if not existing_sub.scalar_one_or_none():
+        db.add(EmailSubscriber(email=data.email, name=data.full_name))
+
     await db.commit()
     await db.refresh(user)
+
+    await _unisender_subscribe(data.email, data.full_name)
 
     token = create_access_token({"sub": user.id})
     return Token(access_token=token, user=UserOut.model_validate(user))
@@ -1111,6 +1120,7 @@ async def subscribe(data: SubscribeRequest, db: AsyncSession = Depends(get_db)):
     sub = EmailSubscriber(email=data.email, name=data.name)
     db.add(sub)
     await db.commit()
+    await _unisender_subscribe(data.email, data.name)
     return MessageOut(message="Вы успешно подписались на рассылку")
 
 
@@ -1177,35 +1187,65 @@ def _send_emails_sync(subject: str, body: str, recipients: list[str]) -> int:
     return sent
 
 
-async def _send_via_unisender(subject: str, body: str, recipients: list[str]) -> tuple[int, list[str]]:
-    """Send each recipient one transactional email via Unisender sendEmail API.
-    Returns (sent_count, list_of_errors)."""
-    sent = 0
-    errors: list[str] = []
-    url = "https://api.unisender.com/ru/api/sendEmail"
+async def _unisender_subscribe(email: str, name: str | None = None) -> tuple[bool, str]:
+    """Add an email to the configured Unisender list (idempotent).
+    Returns (success, error_or_empty)."""
+    if not (UNISENDER_API_KEY and UNISENDER_LIST_ID):
+        return False, "unisender not configured"
+    data = {
+        "format": "json",
+        "api_key": UNISENDER_API_KEY,
+        "fields[email]": email,
+        "list_ids": UNISENDER_LIST_ID,
+        "double_optin": "3",
+        "overwrite": "2",
+    }
+    if name:
+        data["fields[Name]"] = name
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post("https://api.unisender.com/ru/api/subscribe", data=data)
+            payload = resp.json()
+            if "error" in payload:
+                return False, payload["error"]
+            return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+async def _send_via_unisender(subject: str, body: str) -> tuple[bool, str, int]:
+    """Create a campaign that sends to all contacts in the configured Unisender list.
+    Returns (success, message, recipients_count)."""
+    if not (UNISENDER_API_KEY and UNISENDER_LIST_ID and UNISENDER_SENDER_EMAIL):
+        return False, "Unisender не настроен (нужны UNISENDER_API_KEY, UNISENDER_LIST_ID, UNISENDER_SENDER_EMAIL)", 0
     async with httpx.AsyncClient(timeout=30) as client:
-        for email in recipients:
-            params = {
+        msg_resp = await client.post(
+            "https://api.unisender.com/ru/api/createEmailMessage",
+            data={
                 "format": "json",
                 "api_key": UNISENDER_API_KEY,
-                "email": email,
                 "sender_name": UNISENDER_SENDER_NAME,
                 "sender_email": UNISENDER_SENDER_EMAIL,
                 "subject": subject,
                 "body": body,
                 "list_id": UNISENDER_LIST_ID,
                 "lang": "ru",
-            }
-            try:
-                resp = await client.post(url, data=params)
-                payload = resp.json()
-                if "error" in payload:
-                    errors.append(f"{email}: {payload['error']}")
-                else:
-                    sent += 1
-            except Exception as e:
-                errors.append(f"{email}: {e}")
-    return sent, errors
+            },
+        )
+        msg_payload = msg_resp.json()
+        if "error" in msg_payload:
+            return False, f"createEmailMessage: {msg_payload['error']}", 0
+        message_id = msg_payload["result"]["message_id"]
+
+        camp_resp = await client.post(
+            "https://api.unisender.com/ru/api/createCampaign",
+            data={"format": "json", "api_key": UNISENDER_API_KEY, "message_id": str(message_id)},
+        )
+        camp_payload = camp_resp.json()
+        if "error" in camp_payload:
+            return False, f"createCampaign: {camp_payload['error']}", 0
+        result = camp_payload["result"]
+        return True, f"Кампания #{result['campaign_id']} запланирована (статус: {result.get('status', 'scheduled')})", int(result.get("count", 0))
 
 
 @app.post("/api/admin/newsletter/send", response_model=MessageOut)
@@ -1224,13 +1264,11 @@ async def send_newsletter(
     recipients = [s.email for s in subscribers]
 
     if UNISENDER_API_KEY and UNISENDER_LIST_ID and UNISENDER_SENDER_EMAIL:
-        sent, errors = await _send_via_unisender(data.subject, data.body, recipients)
-        msg = f"Unisender: отправлено {sent} из {len(recipients)}"
-        if errors:
-            msg += f". Ошибки: {'; '.join(errors[:3])}"
-            if len(errors) > 3:
-                msg += f" (и ещё {len(errors) - 3})"
-        return MessageOut(message=msg)
+        for sub in subscribers:
+            await _unisender_subscribe(sub.email, sub.name)
+        ok, msg, count = await _send_via_unisender(data.subject, data.body)
+        prefix = "Unisender: " if ok else "Unisender ошибка: "
+        return MessageOut(message=f"{prefix}{msg}. Локальных подписчиков: {len(recipients)}")
 
     if not SMTP_HOST:
         return MessageOut(
@@ -1247,19 +1285,33 @@ async def send_newsletter_test(
     data: NewsletterTest,
     user: User = Depends(require_admin),
 ):
-    recipients = [data.email]
-    if UNISENDER_API_KEY and UNISENDER_LIST_ID and UNISENDER_SENDER_EMAIL:
-        sent, errors = await _send_via_unisender(data.subject, data.body, recipients)
-        if sent == 1:
-            return MessageOut(message=f"Тест отправлен на {data.email} через Unisender")
-        return MessageOut(message=f"Unisender не отправил. {'; '.join(errors) or 'неизвестная ошибка'}")
+    if UNISENDER_API_KEY and UNISENDER_SENDER_EMAIL:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                "https://api.unisender.com/ru/api/sendEmail",
+                data={
+                    "format": "json",
+                    "api_key": UNISENDER_API_KEY,
+                    "email": data.email,
+                    "sender_name": UNISENDER_SENDER_NAME,
+                    "sender_email": UNISENDER_SENDER_EMAIL,
+                    "subject": data.subject,
+                    "body": data.body,
+                    "list_id": UNISENDER_LIST_ID,
+                    "lang": "ru",
+                },
+            )
+            payload = resp.json()
+        if "error" in payload:
+            return MessageOut(message=f"Unisender отказал: {payload['error']}. Подсказка: на free плане sendEmail работает только на подтверждённый адрес отправителя.")
+        return MessageOut(message=f"Тест отправлен на {data.email} через Unisender")
 
     if not SMTP_HOST:
         return MessageOut(
             message="Email-сервис не настроен. Задайте UNISENDER_* или SMTP_* в переменных окружения."
         )
 
-    sent = await asyncio.to_thread(_send_emails_sync, data.subject, data.body, recipients)
+    sent = await asyncio.to_thread(_send_emails_sync, data.subject, data.body, [data.email])
     if sent == 1:
         return MessageOut(message=f"Тест отправлен на {data.email} через SMTP")
     return MessageOut(message="SMTP не отправил тестовое письмо")
