@@ -1671,27 +1671,21 @@ input, textarea, select { font-family: inherit; }
 .video-protected video {
   pointer-events: auto;
 }
-.video-watermark {
+.video-watermark-corner {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotate(-30deg);
-  font-size: 18px;
-  color: rgba(255,255,255,0.08);
+  top: 12px;
+  right: 12px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
   pointer-events: none;
   white-space: nowrap;
   z-index: 2;
-  letter-spacing: 4px;
-  font-weight: 700;
-}
-.video-shield {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 40px;
-  z-index: 1;
-  pointer-events: none;
+  letter-spacing: 1px;
+  font-weight: 600;
+  background: rgba(0,0,0,0.35);
+  padding: 4px 8px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
 }
 
 /* ═══════ Upload progress ═══════ */

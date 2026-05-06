@@ -10,21 +10,6 @@ const difficultyLabels = {
 };
 
 function ProtectedVideo({ src, userId }) {
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) || (e.ctrlKey && e.key === 'u') || (e.ctrlKey && e.key === 's')) {
-        e.preventDefault();
-      }
-    };
-    const ctxHandler = (e) => e.preventDefault();
-    document.addEventListener('keydown', handler);
-    document.addEventListener('contextmenu', ctxHandler);
-    return () => {
-      document.removeEventListener('keydown', handler);
-      document.removeEventListener('contextmenu', ctxHandler);
-    };
-  }, []);
-
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const videoUrl = src.startsWith('http') ? src : `${apiBase}${src}`;
 
@@ -36,14 +21,13 @@ function ProtectedVideo({ src, userId }) {
         controlsList="nodownload noremoteplayback"
         disablePictureInPicture
         onContextMenu={(e) => e.preventDefault()}
-        style={{ width: '100%', borderRadius: '8px' }}
+        style={{ width: '100%', borderRadius: '8px', display: 'block' }}
         src={videoUrl}
         autoPlay
       />
-      <div className="video-watermark">
-        ID: {userId || '***'} &nbsp; БЕЛЫЙ ВВОЗ
+      <div className="video-watermark-corner">
+        ID: {userId || '***'} · БЕЛЫЙ ВВОЗ
       </div>
-      <div className="video-shield" onContextMenu={(e) => e.preventDefault()} />
     </div>
   );
 }
@@ -188,9 +172,8 @@ export default function CourseDetail() {
         </div>
       </section>
 
-      {/* Video player for active lesson */}
       {activeLesson && activeLesson.video_url && (
-        <section className="section" style={{ paddingBottom: '0' }}>
+        <section key={activeLesson.id} className="section" style={{ paddingBottom: '0' }}>
           <h2 className="section-title" style={{ marginBottom: '8px' }}>
             Урок {activeLesson.order}: {activeLesson.title}
           </h2>
